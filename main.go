@@ -17,6 +17,11 @@ const (
 	namespace = "ds_exporter"
 )
 
+var (
+	ldapServer     = kingpin.Flag("ldap.ServerFQDN", "FQDN of the target LDAP server").Default("localhost").String()
+	ldapServerPort = kingpin.Flag("ldap.ServerPort", "Port to connect on LDAP server").Default("389").String()
+)
+
 // DSData stores metrics from 389DS
 type DSData struct {
 	anonymousbinds             float64
@@ -318,7 +323,7 @@ func (e *Exporter) Describe(ch chan<- *prometheus.Desc) {
 
 // Collect reads stats from LDAP connection object into Prometheus objects
 func (e *Exporter) Collect(ch chan<- prometheus.Metric) {
-	data := getStats()
+	data := getStats(ldapServer, ldapServerPort)
 
 	ch <- prometheus.MustNewConstMetric(e.anonymousbinds, prometheus.CounterValue, data.anonymousbinds)
 	ch <- prometheus.MustNewConstMetric(e.unauthbinds, prometheus.CounterValue, data.unauthbinds)
@@ -369,10 +374,10 @@ func main() {
 	http.Handle(*metricsPath, promhttp.Handler())
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(`<html>
-             <head><title>Memcached Exporter</title></head>
+             <head><title>389-DS Exporter</title></head>
              <body>
-             <h1>Memcached Exporter</h1>
-             <p><a href='` + *metricsPath + `'>Metrics</a></p>
+             <h1>389-DS Exporter</h1>
+             <p>For the metrics: Click <a href='` + *metricsPath + `'>here</a></p>
              </body>
              </html>`))
 	})
