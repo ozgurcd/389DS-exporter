@@ -9,8 +9,6 @@ import (
 	ldap "gopkg.in/ldap.v3"
 )
 
-// /usr/bin/ldapsearch -LLL -D "cn=Directory Manager" -w diz34RMD -h mldap1.op-zone1.phl1 -x -o ldif-wrap=no -o nettimeout=3 -b "cn=monitor" "(objectclass=*)"
-
 func getStats() DSData {
 	conn, err := ldap.Dial("tcp", fmt.Sprintf("%s:%d", "mldap1.op-zone1.phl1", 389))
 	if err != nil {
