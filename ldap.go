@@ -1,4 +1,5 @@
-// Ozgur
+// Ozgur Demir <ozgurcd@gmail.com>
+
 package main
 
 import (

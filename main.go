@@ -1,4 +1,5 @@
-// Ozgur Demir
+// Ozgur Demir <ozgurcd@gmail.com>
+// v1.0
 
 package main
 
