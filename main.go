@@ -1,5 +1,5 @@
 // Ozgur Demir <ozgurcd@gmail.com>
-// v1.0
+// v1.1
 
 package main
 
@@ -19,8 +19,8 @@ const (
 )
 
 var (
-	ldapServer     = kingpin.Flag("ldap.ServerFQDN", "FQDN of the target LDAP server").Default("localhost").String()
-	ldapServerPort = kingpin.Flag("ldap.ServerPort", "Port to connect on LDAP server").Default("389").String()
+	ldapServer     *string
+	ldapServerPort *string
 )
 
 // DSData stores metrics from 389DS
@@ -358,8 +358,10 @@ func (e *Exporter) Collect(ch chan<- prometheus.Metric) {
 
 func main() {
 	var (
-		listenAddress = kingpin.Flag("web.listen-address", "Address to listen on for web interface and telemetry.").Default(":9313").String()
-		metricsPath   = kingpin.Flag("web.telemetry-path", "Path under which to expose metrics.").Default("/metrics").String()
+		listenAddress  = kingpin.Flag("web.listen-address", "Address to listen on for web interface and telemetry.").Default(":9313").String()
+		metricsPath    = kingpin.Flag("web.telemetry-path", "Path under which to expose metrics.").Default("/metrics").String()
+		ldapServer     = kingpin.Flag("ldap.ServerFQDN", "FQDN of the target LDAP server").Default("localhost").String()
+		ldapServerPort = kingpin.Flag("ldap.ServerPort", "Port to connect on LDAP server").Default("389").String()
 	)
 
 	log.AddFlags(kingpin.CommandLine)
@@ -369,6 +371,7 @@ func main() {
 
 	log.Infoln("Starting ds_exporter", version.Info())
 	log.Infoln("Build context", version.BuildContext())
+	log.Infoln("Connecting to LDAP Server: ", *ldapServer, " on port: ", *ldapServerPort)
 
 	prometheus.MustRegister(NewExporter())
 
