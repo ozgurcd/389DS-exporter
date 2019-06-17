@@ -10,8 +10,11 @@ import (
 	ldap "gopkg.in/ldap.v3"
 )
 
-func getStats(ldapServer *string, ldapServerPort int) DSData {
-	conn, err := ldap.Dial("tcp", fmt.Sprintf("%s:%d", *ldapServer, port))
+func getStats(server string, port int) DSData {
+	log.Infoln("ldapServer: ", server)
+	log.Infoln("port: ", port)
+
+	conn, err := ldap.Dial("tcp", fmt.Sprintf("%s:%d", server, port))
 	if err != nil {
 		log.Fatal(err)
 	}

@@ -1,14 +1,10 @@
 // Ozgur Demir <ozgurcd@gmail.com>
-// v1.2
 
 package main
 
 import (
-	"fmt"
 	"net/http"
 	_ "net/http/pprof"
-	"os"
-	"strconv"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -22,9 +18,9 @@ const (
 )
 
 var (
-	ldapServer *string
-	//ldapServerPort *string
-	port int
+	port     int
+	server   string
+	_version = "1.5"
 )
 
 // DSData stores metrics from 389DS
@@ -328,7 +324,8 @@ func (e *Exporter) Describe(ch chan<- *prometheus.Desc) {
 
 // Collect reads stats from LDAP connection object into Prometheus objects
 func (e *Exporter) Collect(ch chan<- prometheus.Metric) {
-	data := getStats(ldapServer, port)
+
+	data := getStats(server, port)
 
 	ch <- prometheus.MustNewConstMetric(e.anonymousbinds, prometheus.CounterValue, data.anonymousbinds)
 	ch <- prometheus.MustNewConstMetric(e.unauthbinds, prometheus.CounterValue, data.unauthbinds)
@@ -365,7 +362,7 @@ func main() {
 		listenAddress  = kingpin.Flag("web.listen-address", "Address to listen on for web interface and telemetry.").Default(":9313").String()
 		metricsPath    = kingpin.Flag("web.telemetry-path", "Path under which to expose metrics.").Default("/metrics").String()
 		ldapServer     = kingpin.Flag("ldap.ServerFQDN", "FQDN of the target LDAP server").Default("localhost").String()
-		ldapServerPort = kingpin.Flag("ldap.ServerPort", "Port to connect on LDAP server").Default("389").String()
+		ldapServerPort = kingpin.Flag("ldap.ServerPort", "Port to connect on LDAP server").Default("389").Int()
 	)
 
 	log.AddFlags(kingpin.CommandLine)
@@ -373,11 +370,9 @@ func main() {
 	kingpin.HelpFlag.Short('h')
 	kingpin.Parse()
 
-	port, err := strconv.Atoi(*ldapServerPort)
-	if err != nil {
-		fmt.Println(ldapServerPort, "is not an integer.")
-		os.Exit(-1)
-	}
+	port = *ldapServerPort
+	server = *ldapServer
+	version.Version = _version
 
 	log.Infoln("Starting ds_exporter", version.Info())
 	log.Infoln("Build context", version.BuildContext())
