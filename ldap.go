@@ -11,9 +11,6 @@ import (
 )
 
 func getStats(server string, port int) DSData {
-	log.Infoln("ldapServer: ", server)
-	log.Infoln("port: ", port)
-
 	conn, err := ldap.Dial("tcp", fmt.Sprintf("%s:%d", server, port))
 	if err != nil {
 		log.Fatal(err)
