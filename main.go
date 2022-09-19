@@ -6,9 +6,9 @@ import (
 	"net/http"
 	_ "net/http/pprof"
 
+	"log"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"github.com/prometheus/common/log"
 	"github.com/prometheus/common/version"
 	"gopkg.in/alecthomas/kingpin.v2"
 )
@@ -25,6 +25,11 @@ var (
 
 // DSData stores metrics from 389DS
 type DSData struct {
+	threads             			float64
+	readwaiters             	float64
+	opsinitiated             	float64
+	opscompleted             	float64
+	dtablesize             		float64
 	anonymousbinds             float64
 	unauthbinds                float64
 	simpleauthbinds            float64
@@ -57,6 +62,11 @@ type DSData struct {
 
 // Exporter stores metrics from 389DS
 type Exporter struct {
+	threads             			*prometheus.Desc
+	readwaiters             	*prometheus.Desc
+	opsinitiated             	*prometheus.Desc
+	opscompleted             	*prometheus.Desc
+	dtablesize             		*prometheus.Desc
 	anonymousbinds             *prometheus.Desc
 	unauthbinds                *prometheus.Desc
 	simpleauthbinds            *prometheus.Desc
@@ -90,6 +100,41 @@ type Exporter struct {
 // NewExporter returns an initialized exporter
 func NewExporter() *Exporter {
 	return &Exporter{
+
+		threads: prometheus.NewDesc(
+			prometheus.BuildFQName(namespace, "", "threads"),
+			"Number of Threads max configured",
+			nil,
+			nil,
+		),
+
+		readwaiters: prometheus.NewDesc(
+			prometheus.BuildFQName(namespace, "", "readwaiters"),
+			"Current number of threads waiting to read data from a client",
+			nil,
+			nil,
+		),
+
+		opsinitiated: prometheus.NewDesc(
+			prometheus.BuildFQName(namespace, "", "opsinitiated"),
+			"Current number of operations the server has initiated since it started",
+			nil,
+			nil,
+		),
+
+		opscompleted: prometheus.NewDesc(
+			prometheus.BuildFQName(namespace, "", "opscompleted"),
+			"Current number of operations the server has completed since it started",
+			nil,
+			nil,
+		),
+
+		dtablesize: prometheus.NewDesc(
+			prometheus.BuildFQName(namespace, "", "dtablesize"),
+			"The number of file descriptors available to the directory. Essentially, this value shows how many additional concurrent connections can be serviced by the directory",
+			nil,
+			nil,
+		),
 
 		anonymousbinds: prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, "", "anonymousbinds"),
@@ -292,6 +337,11 @@ func NewExporter() *Exporter {
 // Describe soyle boyle
 func (e *Exporter) Describe(ch chan<- *prometheus.Desc) {
 
+	ch <- e.threads
+	ch <- e.readwaiters
+	ch <- e.opsinitiated
+	ch <- e.opscompleted
+	ch <- e.dtablesize
 	ch <- e.anonymousbinds
 	ch <- e.unauthbinds
 	ch <- e.simpleauthbinds
@@ -327,6 +377,11 @@ func (e *Exporter) Collect(ch chan<- prometheus.Metric) {
 
 	data := getStats(server, port)
 
+	ch <- prometheus.MustNewConstMetric(e.threads, prometheus.CounterValue, data.threads)
+	ch <- prometheus.MustNewConstMetric(e.readwaiters, prometheus.CounterValue, data.readwaiters)
+	ch <- prometheus.MustNewConstMetric(e.opsinitiated, prometheus.CounterValue, data.opsinitiated)
+	ch <- prometheus.MustNewConstMetric(e.opscompleted, prometheus.CounterValue, data.opscompleted)
+	ch <- prometheus.MustNewConstMetric(e.dtablesize, prometheus.CounterValue, data.dtablesize)
 	ch <- prometheus.MustNewConstMetric(e.anonymousbinds, prometheus.CounterValue, data.anonymousbinds)
 	ch <- prometheus.MustNewConstMetric(e.unauthbinds, prometheus.CounterValue, data.unauthbinds)
 	ch <- prometheus.MustNewConstMetric(e.simpleauthbinds, prometheus.CounterValue, data.simpleauthbinds)
@@ -365,7 +420,7 @@ func main() {
 		ldapServerPort = kingpin.Flag("ldap.ServerPort", "Port to connect on LDAP server").Default("389").Int()
 	)
 
-	log.AddFlags(kingpin.CommandLine)
+	//log.AddFlags(kingpin.CommandLine)
 	kingpin.Version(version.Print("ds_exporter"))
 	kingpin.HelpFlag.Short('h')
 	kingpin.Parse()
@@ -374,9 +429,9 @@ func main() {
 	server = *ldapServer
 	version.Version = _version
 
-	log.Infoln("Starting ds_exporter", version.Info())
-	log.Infoln("Build context", version.BuildContext())
-	log.Infoln("Connecting to LDAP Server: ", *ldapServer, " on port: ", port)
+	log.Println("Starting ds_exporter", version.Info())
+	log.Println("Build context", version.BuildContext())
+	log.Println("Connecting to LDAP Server: ", *ldapServer, " on port: ", port)
 
 	prometheus.MustRegister(NewExporter())
 
@@ -390,6 +445,6 @@ func main() {
              </body>
              </html>`))
 	})
-	log.Infoln("Starting HTTP server on", *listenAddress)
+	log.Println("Starting HTTP server on", *listenAddress)
 	log.Fatal(http.ListenAndServe(*listenAddress, nil))
 }
