@@ -9,7 +9,7 @@
 
 # The directory server 389 export there metric on ldap cn=monitor base (and generaly are accesible anonymously):
 ```
-# ldapsearch -H ldap://<myserverds389>:389 -x -s sub -b "cn=monitor" "(objectclass=*)"
+# ldapsearch -H ldap://localhost:389 -x -s sub -b "cn=monitor" "(objectclass=*)"
 # extended LDIF
 #
 # LDAPv3
