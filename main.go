@@ -7,10 +7,11 @@ import (
 	_ "net/http/pprof"
 
 	"log"
+
+	"github.com/alecthomas/kingpin/v2"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/prometheus/common/version"
-	"gopkg.in/alecthomas/kingpin.v2"
 )
 
 const (
@@ -25,11 +26,11 @@ var (
 
 // DSData stores metrics from 389DS
 type DSData struct {
-	threads             			float64
-	readwaiters             	float64
-	opsinitiated             	float64
-	opscompleted             	float64
-	dtablesize             		float64
+	threads                    float64
+	readwaiters                float64
+	opsinitiated               float64
+	opscompleted               float64
+	dtablesize                 float64
 	anonymousbinds             float64
 	unauthbinds                float64
 	simpleauthbinds            float64
@@ -62,11 +63,11 @@ type DSData struct {
 
 // Exporter stores metrics from 389DS
 type Exporter struct {
-	threads             			*prometheus.Desc
-	readwaiters             	*prometheus.Desc
-	opsinitiated             	*prometheus.Desc
-	opscompleted             	*prometheus.Desc
-	dtablesize             		*prometheus.Desc
+	threads                    *prometheus.Desc
+	readwaiters                *prometheus.Desc
+	opsinitiated               *prometheus.Desc
+	opscompleted               *prometheus.Desc
+	dtablesize                 *prometheus.Desc
 	anonymousbinds             *prometheus.Desc
 	unauthbinds                *prometheus.Desc
 	simpleauthbinds            *prometheus.Desc
