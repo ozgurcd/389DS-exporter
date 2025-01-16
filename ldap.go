@@ -7,13 +7,13 @@ import (
 	"log"
 	"strconv"
 
-	"github.com/go-ldap/ldap"
+	"github.com/go-ldap/ldap/v3"
 )
 
 func getStats(server string, port int) DSData {
 	log.Println("ldap server:", server)
 	log.Println("ldap port:", port)
-	conn, err := ldap.Dial("tcp", fmt.Sprintf("%s:%d", server, port))
+	conn, err := ldap.DialURL(fmt.Sprintf("ldap://%s:%d", server, port))
 	if err != nil {
 		log.Fatal(err)
 	}
