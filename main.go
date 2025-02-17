@@ -21,8 +21,14 @@ const (
 var (
 	port     int
 	server   string
+   bind     *DSAuth
 	_version = "1.5"
 )
+
+type DSAuth struct {
+   dn string
+   pass string
+}
 
 // DSData stores metrics from 389DS
 type DSData struct {
@@ -376,7 +382,7 @@ func (e *Exporter) Describe(ch chan<- *prometheus.Desc) {
 // Collect reads stats from LDAP connection object into Prometheus objects
 func (e *Exporter) Collect(ch chan<- prometheus.Metric) {
 
-	data := getStats(server, port)
+	data := getStats(server, port, bind)
 
 	ch <- prometheus.MustNewConstMetric(e.threads, prometheus.CounterValue, data.threads)
 	ch <- prometheus.MustNewConstMetric(e.readwaiters, prometheus.CounterValue, data.readwaiters)
@@ -419,6 +425,8 @@ func main() {
 		metricsPath    = kingpin.Flag("web.telemetry-path", "Path under which to expose metrics.").Default("/metrics").String()
 		ldapServer     = kingpin.Flag("ldap.ServerFQDN", "FQDN of the target LDAP server").Default("localhost").String()
 		ldapServerPort = kingpin.Flag("ldap.ServerPort", "Port to connect on LDAP server").Default("389").Int()
+      ldapBindDn     = kingpin.Flag("ldap.bindDN", "Bind DN for ldap connection").Default("").String()
+      ldapBindPass   = kingpin.Flag("ldap.bindPassword", "Bind password for ldap connection").Default("").String()
 	)
 
 	//log.AddFlags(kingpin.CommandLine)
@@ -429,6 +437,10 @@ func main() {
 	port = *ldapServerPort
 	server = *ldapServer
 	version.Version = _version
+
+   if *ldapBindDn != "" && *ldapBindPass != "" {
+      bind = &DSAuth{dn: *ldapBindDn, pass: *ldapBindPass}
+   }
 
 	log.Println("Starting ds_exporter", version.Info())
 	log.Println("Build context", version.BuildContext())
