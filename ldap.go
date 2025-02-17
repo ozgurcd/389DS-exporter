@@ -10,7 +10,7 @@ import (
 	"github.com/go-ldap/ldap/v3"
 )
 
-func getStats(server string, port int) DSData {
+func getStats(server string, port int, bind *DSAuth) DSData {
 	log.Println("ldap server:", server)
 	log.Println("ldap port:", port)
 	conn, err := ldap.DialURL(fmt.Sprintf("ldap://%s:%d", server, port))
@@ -18,6 +18,13 @@ func getStats(server string, port int) DSData {
 		log.Fatal(err)
 	}
 	defer conn.Close()
+
+   if bind != nil {
+      err = conn.Bind(bind.dn, bind.pass)
+      if err != nil {
+         log.Fatal(err)
+      }
+   }
 
 	searchRequest := ldap.NewSearchRequest(
 		"cn=monitor",
