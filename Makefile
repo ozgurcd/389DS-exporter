@@ -1,6 +1,6 @@
 BINARY := 389DS-exporter
 
-.PHONY: all build clean distclean fmt vet lint gosec osv-scanner test run verify
+.PHONY: all build clean distclean fmt vet lint gosec osv-scanner staticcheck test run verify
 
 all: build
 
@@ -37,4 +37,7 @@ gosec:
 osv-scanner:
 	osv-scanner scan -r go.mod
 
-verify: lint gosec osv-scanner build test
+staticcheck:
+	staticcheck ./...
+
+verify: lint gosec osv-scanner staticcheck build test
