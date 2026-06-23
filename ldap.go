@@ -27,7 +27,7 @@ func parseFloatWithDefault(value, fieldName string) float64 {
 	return result
 }
 
-func searchLDAP(conn *ldap.Conn, timeout time.Duration) (obj.DSData, error) {
+func searchLDAP(conn LDAPClient, timeout time.Duration) (obj.DSData, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 

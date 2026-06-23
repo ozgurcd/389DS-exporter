@@ -10,10 +10,30 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
+type LDAPClient interface {
+	Search(searchRequest *ldap.SearchRequest) (*ldap.SearchResult, error)
+	Close() error
+}
+
+type ldapClient struct {
+	conn *ldap.Conn
+}
+
+func (c *ldapClient) Search(req *ldap.SearchRequest) (*ldap.SearchResult, error) {
+	return c.conn.Search(req)
+}
+
+func (c *ldapClient) Close() error {
+	return c.conn.Close()
+}
+
+type dialFunc func(string) (LDAPClient, error)
+
 // Exporter stores metrics from 389DS
 type Exporter struct {
 	mu    sync.Mutex
-	ldapConn *ldap.Conn
+	ldapConn LDAPClient
+	dial     dialFunc
 
 	Threads                    *prometheus.Desc
 	Readwaiters                *prometheus.Desc
@@ -53,6 +73,13 @@ type Exporter struct {
 // NewExporter returns an initialized exporter
 func NewExporter() *Exporter {
 	return &Exporter{
+		dial: func(addr string) (LDAPClient, error) {
+			conn, err := ldap.DialURL(addr)
+			if err != nil {
+				return nil, err
+			}
+			return &ldapClient{conn: conn}, nil
+		},
 
 		Threads: prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, "", "threads"),
@@ -323,7 +350,7 @@ func (e *Exporter) Describe(ch chan<- *prometheus.Desc) {
 	ch <- e.Cachehits
 }
 
-func (e *Exporter) getLDAPConn() (*ldap.Conn, error) {
+func (e *Exporter) getLDAPConn() (LDAPClient, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
@@ -331,18 +358,24 @@ func (e *Exporter) getLDAPConn() (*ldap.Conn, error) {
 		return e.ldapConn, nil
 	}
 
-	type dialResult struct {
-		conn *ldap.Conn
-		err  error
+	if e.dial == nil {
+		return nil, fmt.Errorf("no dial function configured")
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), ldapTimeout)
 	defer cancel()
 
-	resultCh := make(chan dialResult, 1)
+	resultCh := make(chan struct {
+		c   LDAPClient
+		err error
+	}, 1)
+
 	go func() {
-		conn, err := ldap.DialURL(fmt.Sprintf("ldap://%s:%d", server, port))
-		resultCh <- dialResult{conn: conn, err: err}
+		c, err := e.dial(fmt.Sprintf("ldap://%s:%d", server, port))
+		resultCh <- struct {
+			c   LDAPClient
+			err error
+		}{c: c, err: err}
 	}()
 
 	select {
@@ -351,8 +384,8 @@ func (e *Exporter) getLDAPConn() (*ldap.Conn, error) {
 			log.Printf("LDAP connection failed: %v", result.err)
 			return nil, result.err
 		}
-		e.ldapConn = result.conn
-		return result.conn, nil
+		e.ldapConn = result.c
+		return result.c, nil
 	case <-ctx.Done():
 		return nil, fmt.Errorf("LDAP connection timeout after %v to %s:%d", ldapTimeout, server, port)
 	}
