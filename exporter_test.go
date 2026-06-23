@@ -17,8 +17,13 @@ func TestNewExporter(t *testing.T) {
 func TestNewExporterDescsNonNil(t *testing.T) {
 	e := NewExporter()
 	v := reflect.ValueOf(e).Elem()
+	descType := reflect.TypeFor[*prometheus.Desc]()
 	for i := range v.NumField() {
-		if v.Field(i).IsNil() {
+		f := v.Field(i)
+		if f.Type() != descType {
+			continue
+		}
+		if f.IsNil() {
 			t.Errorf("%s desc is nil", v.Type().Field(i).Name)
 		}
 	}

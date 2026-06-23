@@ -1,13 +1,20 @@
 package main
 
 import (
+	"context"
+	"fmt"
 	"log"
+	"sync"
 
+	"github.com/go-ldap/ldap/v3"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
 // Exporter stores metrics from 389DS
 type Exporter struct {
+	mu    sync.Mutex
+	ldapConn *ldap.Conn
+
 	Threads                    *prometheus.Desc
 	Readwaiters                *prometheus.Desc
 	Opsinitiated               *prometheus.Desc
@@ -316,12 +323,63 @@ func (e *Exporter) Describe(ch chan<- *prometheus.Desc) {
 	ch <- e.Cachehits
 }
 
+func (e *Exporter) getLDAPConn() (*ldap.Conn, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	if e.ldapConn != nil {
+		return e.ldapConn, nil
+	}
+
+	type dialResult struct {
+		conn *ldap.Conn
+		err  error
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), ldapTimeout)
+	defer cancel()
+
+	resultCh := make(chan dialResult, 1)
+	go func() {
+		conn, err := ldap.DialURL(fmt.Sprintf("ldap://%s:%d", server, port))
+		resultCh <- dialResult{conn: conn, err: err}
+	}()
+
+	select {
+	case result := <-resultCh:
+		if result.err != nil {
+			log.Printf("LDAP connection failed: %v", result.err)
+			return nil, result.err
+		}
+		e.ldapConn = result.conn
+		return result.conn, nil
+	case <-ctx.Done():
+		return nil, fmt.Errorf("LDAP connection timeout after %v to %s:%d", ldapTimeout, server, port)
+	}
+}
+
+func (e *Exporter) closeLDAPConn() {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	if e.ldapConn != nil {
+		_ = e.ldapConn.Close()
+		e.ldapConn = nil
+	}
+}
+
 // Collect reads stats from LDAP connection object into Prometheus objects
 func (e *Exporter) Collect(ch chan<- prometheus.Metric) {
-	data, err := getStats(server, port, ldapTimeout)
+	conn, err := e.getLDAPConn()
+	if err != nil {
+		log.Printf("Error getting LDAP connection: %v", err)
+		return
+	}
+
+	data, err := searchLDAP(conn, ldapTimeout)
 	if err != nil {
 		log.Printf("Error collecting LDAP stats: %v", err)
-		// Return early - no metrics will be exported if LDAP is unavailable
+		e.closeLDAPConn()
 		return
 	}
 

@@ -27,6 +27,7 @@ var (
 	server      string
 	_version    = "1.6"
 	ldapTimeout time.Duration
+	exporter    *Exporter
 )
 
 func main() {
@@ -70,7 +71,8 @@ func main() {
 	log.Println("Build context", version.BuildContext())
 	log.Printf("Target LDAP Server: %s:%d (timeout: %v)", *ldapServer, port, *timeout)
 
-	prometheus.MustRegister(NewExporter())
+	exporter = NewExporter()
+	prometheus.MustRegister(exporter)
 
 	http.Handle(*metricsPath, promhttp.Handler())
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -84,12 +86,19 @@ func main() {
              </html>`))
 	})
 
-	// Health check endpoint
+	// Health check endpoint — uses exporter's cached LDAP connection
 	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		_, err := getStats(server, port, ldapTimeout)
+		conn, err := exporter.getLDAPConn()
 		if err != nil {
 			w.WriteHeader(http.StatusServiceUnavailable)
 			_, _ = w.Write([]byte("LDAP connection failed: " + err.Error()))
+			return
+		}
+		_, err = searchLDAP(conn, ldapTimeout)
+		if err != nil {
+			exporter.closeLDAPConn()
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = w.Write([]byte("LDAP search failed: " + err.Error()))
 			return
 		}
 		w.WriteHeader(http.StatusOK)
