@@ -95,190 +95,54 @@ func getStats(server string, port int, timeout time.Duration) (obj.DSData, error
 		return obj.DSData{}, fmt.Errorf("LDAP search failed: %w", err)
 	}
 
-	var (
-		threads                    string
-		readwaiters                string
-		opsinitiated               string
-		opscompleted               string
-		dtablesize                 string
-		anonymousbinds             string
-		unauthbinds                string
-		simpleauthbinds            string
-		strongauthbinds            string
-		bindsecurityerrors         string
-		inops                      string
-		readops                    string
-		compareops                 string
-		addentryops                string
-		removeentryops             string
-		modifyentryops             string
-		modifyrdnops               string
-		searchops                  string
-		onelevelsearchops          string
-		wholesubtreesearchops      string
-		referrals                  string
-		securityerrors             string
-		errors                     string
-		connections                string
-		connectionseq              string
-		connectionsinmaxthreads    string
-		connectionsmaxthreadscount string
-		bytesrecv                  string
-		bytessent                  string
-		entriesreturned            string
-		referralsreturned          string
-		cacheentries               string
-		cachehits                  string
-	)
+	return parseMonitorAttrs(sr.Entries), nil
+}
 
-	for n := 0; n < len(sr.Entries); n++ {
-		entry := sr.Entries[n]
-		attributes := entry.Attributes
-
-		for _, attr := range attributes {
-			name := string(attr.Name)
-			value := attr.Values
-
-			// Only log if we're interested in this attribute and it has values
-			if len(value) > 0 {
-				switch name {
-				case "threads":
-					threads = value[0]
-					log.Printf("Found %s: %s", name, value[0])
-				case "readwaiters":
-					readwaiters = value[0]
-					log.Printf("Found %s: %s", name, value[0])
-				case "opsinitiated":
-					opsinitiated = value[0]
-					log.Printf("Found %s: %s", name, value[0])
-				case "opscompleted":
-					opscompleted = value[0]
-					log.Printf("Found %s: %s", name, value[0])
-				case "dtablesize":
-					dtablesize = value[0]
-					log.Printf("Found %s: %s", name, value[0])
-				case "anonymousbinds":
-					anonymousbinds = value[0]
-					log.Printf("Found %s: %s", name, value[0])
-				case "unauthbinds":
-					unauthbinds = value[0]
-					log.Printf("Found %s: %s", name, value[0])
-				case "simpleauthbinds":
-					simpleauthbinds = value[0]
-					log.Printf("Found %s: %s", name, value[0])
-				case "strongauthbinds":
-					strongauthbinds = value[0]
-					log.Printf("Found %s: %s", name, value[0])
-				case "bindsecurityerrors":
-					bindsecurityerrors = value[0]
-					log.Printf("Found %s: %s", name, value[0])
-				case "inops":
-					inops = value[0]
-					log.Printf("Found %s: %s", name, value[0])
-				case "readops":
-					readops = value[0]
-					log.Printf("Found %s: %s", name, value[0])
-				case "compareops":
-					compareops = value[0]
-					log.Printf("Found %s: %s", name, value[0])
-				case "addentryops":
-					addentryops = value[0]
-					log.Printf("Found %s: %s", name, value[0])
-				case "removeentryops":
-					removeentryops = value[0]
-					log.Printf("Found %s: %s", name, value[0])
-				case "modifyentryops":
-					modifyentryops = value[0]
-					log.Printf("Found %s: %s", name, value[0])
-				case "modifyrdnops":
-					modifyrdnops = value[0]
-					log.Printf("Found %s: %s", name, value[0])
-				case "searchops":
-					searchops = value[0]
-					log.Printf("Found %s: %s", name, value[0])
-				case "onelevelsearchops":
-					onelevelsearchops = value[0]
-					log.Printf("Found %s: %s", name, value[0])
-				case "wholesubtreesearchops":
-					wholesubtreesearchops = value[0]
-					log.Printf("Found %s: %s", name, value[0])
-				case "referrals":
-					referrals = value[0]
-					log.Printf("Found %s: %s", name, value[0])
-				case "securityerrors":
-					securityerrors = value[0]
-					log.Printf("Found %s: %s", name, value[0])
-				case "errors":
-					errors = value[0]
-					log.Printf("Found %s: %s", name, value[0])
-				case "connections":
-					connections = value[0]
-					log.Printf("Found %s: %s", name, value[0])
-				case "connectionseq":
-					connectionseq = value[0]
-					log.Printf("Found %s: %s", name, value[0])
-				case "connectionsinmaxthreads":
-					connectionsinmaxthreads = value[0]
-					log.Printf("Found %s: %s", name, value[0])
-				case "connectionsmaxthreadscount":
-					connectionsmaxthreadscount = value[0]
-					log.Printf("Found %s: %s", name, value[0])
-				case "bytesrecv":
-					bytesrecv = value[0]
-					log.Printf("Found %s: %s", name, value[0])
-				case "bytessent":
-					bytessent = value[0]
-					log.Printf("Found %s: %s", name, value[0])
-				case "entriesreturned":
-					entriesreturned = value[0]
-					log.Printf("Found %s: %s", name, value[0])
-				case "referralsreturned":
-					referralsreturned = value[0]
-					log.Printf("Found %s: %s", name, value[0])
-				case "cacheentries":
-					cacheentries = value[0]
-					log.Printf("Found %s: %s", name, value[0])
-				case "cachehits":
-					cachehits = value[0]
-					log.Printf("Found %s: %s", name, value[0])
-				}
+func parseMonitorAttrs(entries []*ldap.Entry) obj.DSData {
+	attrs := make(map[string]string, 33)
+	for _, entry := range entries {
+		for _, attr := range entry.Attributes {
+			if len(attr.Values) == 0 {
+				continue
 			}
+			attrs[attr.Name] = attr.Values[0]
+			log.Printf("Found %s: %s", attr.Name, attr.Values[0])
 		}
 	}
 
 	return obj.DSData{
-		Threads:                    parseFloatWithDefault(threads, "threads"),
-		Readwaiters:                parseFloatWithDefault(readwaiters, "readwaiters"),
-		Opsinitiated:               parseFloatWithDefault(opsinitiated, "opsinitiated"),
-		Opscompleted:               parseFloatWithDefault(opscompleted, "opscompleted"),
-		Dtablesize:                 parseFloatWithDefault(dtablesize, "dtablesize"),
-		Anonymousbinds:             parseFloatWithDefault(anonymousbinds, "anonymousbinds"),
-		Unauthbinds:                parseFloatWithDefault(unauthbinds, "unauthbinds"),
-		Simpleauthbinds:            parseFloatWithDefault(simpleauthbinds, "simpleauthbinds"),
-		Strongauthbinds:            parseFloatWithDefault(strongauthbinds, "strongauthbinds"),
-		Bindsecurityerrors:         parseFloatWithDefault(bindsecurityerrors, "bindsecurityerrors"),
-		Inops:                      parseFloatWithDefault(inops, "inops"),
-		Readops:                    parseFloatWithDefault(readops, "readops"),
-		Compareops:                 parseFloatWithDefault(compareops, "compareops"),
-		Addentryops:                parseFloatWithDefault(addentryops, "addentryops"),
-		Removeentryops:             parseFloatWithDefault(removeentryops, "removeentryops"),
-		Modifyentryops:             parseFloatWithDefault(modifyentryops, "modifyentryops"),
-		Modifyrdnops:               parseFloatWithDefault(modifyrdnops, "modifyrdnops"),
-		Searchops:                  parseFloatWithDefault(searchops, "searchops"),
-		Onelevelsearchops:          parseFloatWithDefault(onelevelsearchops, "onelevelsearchops"),
-		Wholesubtreesearchops:      parseFloatWithDefault(wholesubtreesearchops, "wholesubtreesearchops"),
-		Referrals:                  parseFloatWithDefault(referrals, "referrals"),
-		Securityerrors:             parseFloatWithDefault(securityerrors, "securityerrors"),
-		Errors:                     parseFloatWithDefault(errors, "errors"),
-		Connections:                parseFloatWithDefault(connections, "connections"),
-		Connectionseq:              parseFloatWithDefault(connectionseq, "connectionseq"),
-		Connectionsinmaxthreads:    parseFloatWithDefault(connectionsinmaxthreads, "connectionsinmaxthreads"),
-		Connectionsmaxthreadscount: parseFloatWithDefault(connectionsmaxthreadscount, "connectionsmaxthreadscount"),
-		Bytesrecv:                  parseFloatWithDefault(bytesrecv, "bytesrecv"),
-		Bytessent:                  parseFloatWithDefault(bytessent, "bytessent"),
-		Entriesreturned:            parseFloatWithDefault(entriesreturned, "entriesreturned"),
-		Referralsreturned:          parseFloatWithDefault(referralsreturned, "referralsreturned"),
-		Cacheentries:               parseFloatWithDefault(cacheentries, "cacheentries"),
-		Cachehits:                  parseFloatWithDefault(cachehits, "cachehits"),
-	}, nil
+		Threads:                    parseFloatWithDefault(attrs["threads"], "threads"),
+		Readwaiters:                parseFloatWithDefault(attrs["readwaiters"], "readwaiters"),
+		Opsinitiated:               parseFloatWithDefault(attrs["opsinitiated"], "opsinitiated"),
+		Opscompleted:               parseFloatWithDefault(attrs["opscompleted"], "opscompleted"),
+		Dtablesize:                 parseFloatWithDefault(attrs["dtablesize"], "dtablesize"),
+		Anonymousbinds:             parseFloatWithDefault(attrs["anonymousbinds"], "anonymousbinds"),
+		Unauthbinds:                parseFloatWithDefault(attrs["unauthbinds"], "unauthbinds"),
+		Simpleauthbinds:            parseFloatWithDefault(attrs["simpleauthbinds"], "simpleauthbinds"),
+		Strongauthbinds:            parseFloatWithDefault(attrs["strongauthbinds"], "strongauthbinds"),
+		Bindsecurityerrors:         parseFloatWithDefault(attrs["bindsecurityerrors"], "bindsecurityerrors"),
+		Inops:                      parseFloatWithDefault(attrs["inops"], "inops"),
+		Readops:                    parseFloatWithDefault(attrs["readops"], "readops"),
+		Compareops:                 parseFloatWithDefault(attrs["compareops"], "compareops"),
+		Addentryops:                parseFloatWithDefault(attrs["addentryops"], "addentryops"),
+		Removeentryops:             parseFloatWithDefault(attrs["removeentryops"], "removeentryops"),
+		Modifyentryops:             parseFloatWithDefault(attrs["modifyentryops"], "modifyentryops"),
+		Modifyrdnops:               parseFloatWithDefault(attrs["modifyrdnops"], "modifyrdnops"),
+		Searchops:                  parseFloatWithDefault(attrs["searchops"], "searchops"),
+		Onelevelsearchops:          parseFloatWithDefault(attrs["onelevelsearchops"], "onelevelsearchops"),
+		Wholesubtreesearchops:      parseFloatWithDefault(attrs["wholesubtreesearchops"], "wholesubtreesearchops"),
+		Referrals:                  parseFloatWithDefault(attrs["referrals"], "referrals"),
+		Securityerrors:             parseFloatWithDefault(attrs["securityerrors"], "securityerrors"),
+		Errors:                     parseFloatWithDefault(attrs["errors"], "errors"),
+		Connections:                parseFloatWithDefault(attrs["connections"], "connections"),
+		Connectionseq:              parseFloatWithDefault(attrs["connectionseq"], "connectionseq"),
+		Connectionsinmaxthreads:    parseFloatWithDefault(attrs["connectionsinmaxthreads"], "connectionsinmaxthreads"),
+		Connectionsmaxthreadscount: parseFloatWithDefault(attrs["connectionsmaxthreadscount"], "connectionsmaxthreadscount"),
+		Bytesrecv:                  parseFloatWithDefault(attrs["bytesrecv"], "bytesrecv"),
+		Bytessent:                  parseFloatWithDefault(attrs["bytessent"], "bytessent"),
+		Entriesreturned:            parseFloatWithDefault(attrs["entriesreturned"], "entriesreturned"),
+		Referralsreturned:          parseFloatWithDefault(attrs["referralsreturned"], "referralsreturned"),
+		Cacheentries:               parseFloatWithDefault(attrs["cacheentries"], "cacheentries"),
+		Cachehits:                  parseFloatWithDefault(attrs["cachehits"], "cachehits"),
+	}
 }
