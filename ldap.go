@@ -56,7 +56,7 @@ func getStats(server string, port int, timeout time.Duration) (obj.DSData, error
 	case <-ctx.Done():
 		return obj.DSData{}, fmt.Errorf("LDAP connection timeout after %v to %s:%d", timeout, server, port)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	searchRequest := ldap.NewSearchRequest(
 		"cn=monitor",

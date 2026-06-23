@@ -74,7 +74,7 @@ func main() {
 
 	http.Handle(*metricsPath, promhttp.Handler())
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(`<html>
+		_, _ = w.Write([]byte(`<html>
              <head><title>389-DS Exporter</title></head>
              <body>
              <h1>389-DS Exporter</h1>
@@ -89,11 +89,11 @@ func main() {
 		_, err := getStats(server, port, ldapTimeout)
 		if err != nil {
 			w.WriteHeader(http.StatusServiceUnavailable)
-			w.Write([]byte("LDAP connection failed: " + err.Error()))
+			_, _ = w.Write([]byte("LDAP connection failed: " + err.Error()))
 			return
 		}
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("OK"))
+		_, _ = w.Write([]byte("OK"))
 	})
 
 	// Create HTTP server with timeouts
