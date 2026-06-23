@@ -1,10 +1,11 @@
 package main
 
 import (
+	"reflect"
+	"strconv"
 	"testing"
 
 	"github.com/go-ldap/ldap/v3"
-	"github.com/ozgurcd/389DS-exporter/obj"
 )
 
 func TestParseMonitorAttrs_NoEntries(t *testing.T) {
@@ -35,56 +36,20 @@ func TestParseMonitorAttrs_Partial(t *testing.T) {
 }
 
 func TestParseMonitorAttrs_AllFields(t *testing.T) {
-	attrs := []*ldap.EntryAttribute{
-		{Name: "threads", Values: []string{"1"}},
-		{Name: "readwaiters", Values: []string{"2"}},
-		{Name: "opsinitiated", Values: []string{"3"}},
-		{Name: "opscompleted", Values: []string{"4"}},
-		{Name: "dtablesize", Values: []string{"5"}},
-		{Name: "anonymousbinds", Values: []string{"6"}},
-		{Name: "unauthbinds", Values: []string{"7"}},
-		{Name: "simpleauthbinds", Values: []string{"8"}},
-		{Name: "strongauthbinds", Values: []string{"9"}},
-		{Name: "bindsecurityerrors", Values: []string{"10"}},
-		{Name: "inops", Values: []string{"11"}},
-		{Name: "readops", Values: []string{"12"}},
-		{Name: "compareops", Values: []string{"13"}},
-		{Name: "addentryops", Values: []string{"14"}},
-		{Name: "removeentryops", Values: []string{"15"}},
-		{Name: "modifyentryops", Values: []string{"16"}},
-		{Name: "modifyrdnops", Values: []string{"17"}},
-		{Name: "searchops", Values: []string{"18"}},
-		{Name: "onelevelsearchops", Values: []string{"19"}},
-		{Name: "wholesubtreesearchops", Values: []string{"20"}},
-		{Name: "referrals", Values: []string{"21"}},
-		{Name: "securityerrors", Values: []string{"22"}},
-		{Name: "errors", Values: []string{"23"}},
-		{Name: "connections", Values: []string{"24"}},
-		{Name: "connectionseq", Values: []string{"25"}},
-		{Name: "connectionsinmaxthreads", Values: []string{"26"}},
-		{Name: "connectionsmaxthreadscount", Values: []string{"27"}},
-		{Name: "bytesrecv", Values: []string{"28"}},
-		{Name: "bytessent", Values: []string{"29"}},
-		{Name: "entriesreturned", Values: []string{"30"}},
-		{Name: "referralsreturned", Values: []string{"31"}},
-		{Name: "cacheentries", Values: []string{"32"}},
-		{Name: "cachehits", Values: []string{"33"}},
+	attrs := make([]*ldap.EntryAttribute, len(metricDefs))
+	for i, m := range metricDefs {
+		attrs[i] = &ldap.EntryAttribute{Name: m.ldapName, Values: []string{strconv.Itoa(i + 1)}}
 	}
+
 	d := parseMonitorAttrs([]*ldap.Entry{{DN: "cn=monitor", Attributes: attrs}})
 
-	want := obj.DSData{
-		Threads: 1, Readwaiters: 2, Opsinitiated: 3, Opscompleted: 4,
-		Dtablesize: 5, Anonymousbinds: 6, Unauthbinds: 7, Simpleauthbinds: 8,
-		Strongauthbinds: 9, Bindsecurityerrors: 10, Inops: 11, Readops: 12,
-		Compareops: 13, Addentryops: 14, Removeentryops: 15, Modifyentryops: 16,
-		Modifyrdnops: 17, Searchops: 18, Onelevelsearchops: 19, Wholesubtreesearchops: 20,
-		Referrals: 21, Securityerrors: 22, Errors: 23, Connections: 24,
-		Connectionseq: 25, Connectionsinmaxthreads: 26, Connectionsmaxthreadscount: 27,
-		Bytesrecv: 28, Bytessent: 29, Entriesreturned: 30, Referralsreturned: 31,
-		Cacheentries: 32, Cachehits: 33,
-	}
-	if d != want {
-		t.Errorf("parseMonitorAttrs mismatch:\ngot  %+v\nwant %+v", d, want)
+	v := reflect.ValueOf(d)
+	for i, m := range metricDefs {
+		got := v.Field(m.fieldIdx).Float()
+		want := float64(i + 1)
+		if got != want {
+			t.Errorf("[%d] %s = %v, want %v", m.fieldIdx, m.ldapName, got, want)
+		}
 	}
 }
 

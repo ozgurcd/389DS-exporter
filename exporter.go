@@ -4,11 +4,76 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"reflect"
 	"sync"
+	"time"
 
 	"github.com/go-ldap/ldap/v3"
 	"github.com/prometheus/client_golang/prometheus"
 )
+
+type metricKind int
+
+const (
+	gaugeKind metricKind = iota
+	counterKind
+)
+
+type metricDef struct {
+	ldapName string
+	fieldIdx int
+	help     string
+	kind     metricKind
+	label    string
+}
+
+// metricDefs is the single source of truth for all 33 metrics.
+// fieldIdx must match obj.DSData struct field order.
+var metricDefs = []metricDef{
+	{ldapName: "threads", fieldIdx: 0, help: "Number of Threads max configured", kind: gaugeKind, label: "threads"},
+	{ldapName: "readwaiters", fieldIdx: 1, help: "Current number of threads waiting to read data from a client", kind: gaugeKind, label: "readwaiters"},
+	{ldapName: "opsinitiated", fieldIdx: 2, help: "Current number of operations the server has initiated since it started", kind: counterKind, label: "opsinitiated"},
+	{ldapName: "opscompleted", fieldIdx: 3, help: "Current number of operations the server has completed since it started", kind: counterKind, label: "opscompleted"},
+	{ldapName: "dtablesize", fieldIdx: 4, help: "The number of file descriptors available to the directory. Essentially, this value shows how many additional concurrent connections can be serviced by the directory", kind: gaugeKind, label: "dtablesize"},
+	{ldapName: "anonymousbinds", fieldIdx: 5, help: "Number of Anonymous Binds", kind: counterKind, label: "anonymousbinds"},
+	{ldapName: "unauthbinds", fieldIdx: 6, help: "Number of Unauth Binds", kind: counterKind, label: "unauthbinds"},
+	{ldapName: "simpleauthbinds", fieldIdx: 7, help: "Number of Simple Auth Binds", kind: counterKind, label: "simpleauthbinds"},
+	{ldapName: "strongauthbinds", fieldIdx: 8, help: "Number of Strong Auth Binds", kind: counterKind, label: "strongauthbinds"},
+	{ldapName: "bindsecurityerrors", fieldIdx: 9, help: "Number of Bind Security Errors", kind: counterKind, label: "bindsecurityerrors"},
+	{ldapName: "inops", fieldIdx: 10, help: "Number of All Requests", kind: counterKind, label: "inops"},
+	{ldapName: "readops", fieldIdx: 11, help: "Number of Read Operations", kind: counterKind, label: "readops"},
+	{ldapName: "compareops", fieldIdx: 12, help: "Number of Compare Operations", kind: counterKind, label: "compareops"},
+	{ldapName: "addentryops", fieldIdx: 13, help: "Number of Add Entry Operations", kind: counterKind, label: "addentryops"},
+	{ldapName: "removeentryops", fieldIdx: 14, help: "Number of Remove Entry Operations", kind: counterKind, label: "removeentryops"},
+	{ldapName: "modifyentryops", fieldIdx: 15, help: "Number of Modify Entry Operations", kind: counterKind, label: "modifyentryops"},
+	{ldapName: "modifyrdnops", fieldIdx: 16, help: "Number of Modify RDN Operations", kind: counterKind, label: "modifyrdnops"},
+	{ldapName: "searchops", fieldIdx: 17, help: "Number of LDAP Search Requests", kind: counterKind, label: "searchops"},
+	{ldapName: "onelevelsearchops", fieldIdx: 18, help: "Number of one-level Search Requests", kind: counterKind, label: "onelevelsearchops"},
+	{ldapName: "wholesubtreesearchops", fieldIdx: 19, help: "Number of subtree-level Search Requests", kind: counterKind, label: "wholesubtreesearchops"},
+	{ldapName: "referrals", fieldIdx: 20, help: "Number of LDAP referrals", kind: counterKind, label: "referrals"},
+	{ldapName: "securityerrors", fieldIdx: 21, help: "Number of Security Errors", kind: counterKind, label: "securityerrors"},
+	{ldapName: "errors", fieldIdx: 22, help: "Number of Errors", kind: counterKind, label: "errors"},
+	{ldapName: "connections", fieldIdx: 23, help: "Number of Connections in Open State at the sampling time", kind: gaugeKind, label: "connections"},
+	{ldapName: "connectionseq", fieldIdx: 24, help: "Total Number of Connections opened", kind: counterKind, label: "connectionseq"},
+	{ldapName: "connectionsinmaxthreads", fieldIdx: 25, help: "Number of connections that are currently in a max thread state", kind: gaugeKind, label: "connectionsinmaxthreads"},
+	{ldapName: "connectionsmaxthreadscount", fieldIdx: 26, help: "Number of connectionsmaxthreadscount", kind: gaugeKind, label: "connectionsmaxthreadscount"},
+	{ldapName: "bytesrecv", fieldIdx: 27, help: "Total number of bytes received", kind: counterKind, label: "bytesrecv"},
+	{ldapName: "bytessent", fieldIdx: 28, help: "Total number of bytes sent", kind: counterKind, label: "bytessent"},
+	{ldapName: "entriesreturned", fieldIdx: 29, help: "Number of Entries Returned", kind: counterKind, label: "entriesreturned"},
+	{ldapName: "referralsreturned", fieldIdx: 30, help: "Number of Referrals Returned", kind: counterKind, label: "referralsreturned"},
+	{ldapName: "cacheentries", fieldIdx: 31, help: "Number of Cache Entries", kind: gaugeKind, label: "cacheentries"},
+	{ldapName: "cachehits", fieldIdx: 32, help: "Number of Cache Hits", kind: counterKind, label: "cachehits"},
+}
+
+// ldapFieldMap maps LDAP attribute names to DSData field indices.
+var ldapFieldMap map[string]int
+
+func init() {
+	ldapFieldMap = make(map[string]int, len(metricDefs))
+	for _, m := range metricDefs {
+		ldapFieldMap[m.ldapName] = m.fieldIdx
+	}
+}
 
 type LDAPClient interface {
 	Search(searchRequest *ldap.SearchRequest) (*ldap.SearchResult, error)
@@ -29,50 +94,41 @@ func (c *ldapClient) Close() error {
 
 type dialFunc func(string) (LDAPClient, error)
 
+func runWithTimeout[T any](timeout time.Duration, fn func() (T, error)) (T, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	type result struct {
+		val T
+		err error
+	}
+	resultCh := make(chan result, 1)
+	go func() {
+		v, e := fn()
+		resultCh <- result{val: v, err: e}
+	}()
+
+	select {
+	case r := <-resultCh:
+		return r.val, r.err
+	case <-ctx.Done():
+		var zero T
+		return zero, ctx.Err()
+	}
+}
+
 // Exporter stores metrics from 389DS
 type Exporter struct {
-	mu    sync.Mutex
+	mu       sync.Mutex
 	ldapConn LDAPClient
 	dial     dialFunc
-
-	Threads                    *prometheus.Desc
-	Readwaiters                *prometheus.Desc
-	Opsinitiated               *prometheus.Desc
-	Opscompleted               *prometheus.Desc
-	Dtablesize                 *prometheus.Desc
-	Anonymousbinds             *prometheus.Desc
-	Unauthbinds                *prometheus.Desc
-	Simpleauthbinds            *prometheus.Desc
-	Strongauthbinds            *prometheus.Desc
-	Bindsecurityerrors         *prometheus.Desc
-	Inops                      *prometheus.Desc
-	Readops                    *prometheus.Desc
-	Compareops                 *prometheus.Desc
-	Addentryops                *prometheus.Desc
-	Removeentryops             *prometheus.Desc
-	Modifyentryops             *prometheus.Desc
-	Modifyrdnops               *prometheus.Desc
-	Searchops                  *prometheus.Desc
-	Onelevelsearchops          *prometheus.Desc
-	Wholesubtreesearchops      *prometheus.Desc
-	Referrals                  *prometheus.Desc
-	Securityerrors             *prometheus.Desc
-	Errors                     *prometheus.Desc
-	Connections                *prometheus.Desc
-	Connectionseq              *prometheus.Desc
-	Connectionsinmaxthreads    *prometheus.Desc
-	Connectionsmaxthreadscount *prometheus.Desc
-	Bytesrecv                  *prometheus.Desc
-	Bytessent                  *prometheus.Desc
-	Entriesreturned            *prometheus.Desc
-	Referralsreturned          *prometheus.Desc
-	Cacheentries               *prometheus.Desc
-	Cachehits                  *prometheus.Desc
+	descs    []*prometheus.Desc
 }
 
 // NewExporter returns an initialized exporter
 func NewExporter() *Exporter {
-	return &Exporter{
+	e := &Exporter{
+		descs: make([]*prometheus.Desc, len(metricDefs)),
 		dial: func(addr string) (LDAPClient, error) {
 			conn, err := ldap.DialURL(addr)
 			if err != nil {
@@ -80,274 +136,20 @@ func NewExporter() *Exporter {
 			}
 			return &ldapClient{conn: conn}, nil
 		},
-
-		Threads: prometheus.NewDesc(
-			prometheus.BuildFQName(namespace, "", "threads"),
-			"Number of Threads max configured",
-			nil,
-			nil,
-		),
-
-		Readwaiters: prometheus.NewDesc(
-			prometheus.BuildFQName(namespace, "", "readwaiters"),
-			"Current number of threads waiting to read data from a client",
-			nil,
-			nil,
-		),
-
-		Opsinitiated: prometheus.NewDesc(
-			prometheus.BuildFQName(namespace, "", "opsinitiated"),
-			"Current number of operations the server has initiated since it started",
-			nil,
-			nil,
-		),
-
-		Opscompleted: prometheus.NewDesc(
-			prometheus.BuildFQName(namespace, "", "opscompleted"),
-			"Current number of operations the server has completed since it started",
-			nil,
-			nil,
-		),
-
-		Dtablesize: prometheus.NewDesc(
-			prometheus.BuildFQName(namespace, "", "dtablesize"),
-			"The number of file descriptors available to the directory. Essentially, this value shows how many additional concurrent connections can be serviced by the directory",
-			nil,
-			nil,
-		),
-
-		Anonymousbinds: prometheus.NewDesc(
-			prometheus.BuildFQName(namespace, "", "anonymousbinds"),
-			"Number of Anonymous Binds",
-			nil,
-			nil,
-		),
-
-		Unauthbinds: prometheus.NewDesc(
-			prometheus.BuildFQName(namespace, "", "unauthbinds"),
-			"Number of Unauth Binds",
-			nil,
-			nil,
-		),
-
-		Simpleauthbinds: prometheus.NewDesc(
-			prometheus.BuildFQName(namespace, "", "simpleauthbinds"),
-			"Number of Simple Auth Binds",
-			nil,
-			nil,
-		),
-
-		Strongauthbinds: prometheus.NewDesc(
-			prometheus.BuildFQName(namespace, "", "strongauthbinds"),
-			"Number of Strong Auth Binds",
-			nil,
-			nil,
-		),
-
-		Bindsecurityerrors: prometheus.NewDesc(
-			prometheus.BuildFQName(namespace, "", "bindsecurityerrors"),
-			"Number of Bind Security Errors",
-			nil,
-			nil,
-		),
-
-		Inops: prometheus.NewDesc(
-			prometheus.BuildFQName(namespace, "", "inops"),
-			"Number of All Requests",
-			nil,
-			nil,
-		),
-
-		Readops: prometheus.NewDesc(
-			prometheus.BuildFQName(namespace, "", "readops"),
-			"Number of Read Operations",
-			nil,
-			nil,
-		),
-
-		Compareops: prometheus.NewDesc(
-			prometheus.BuildFQName(namespace, "", "compareops"),
-			"Number of Compare Operations",
-			nil,
-			nil,
-		),
-
-		Addentryops: prometheus.NewDesc(
-			prometheus.BuildFQName(namespace, "", "addentryops"),
-			"Number of Add Entry Operations",
-			nil,
-			nil,
-		),
-
-		Removeentryops: prometheus.NewDesc(
-			prometheus.BuildFQName(namespace, "", "removeentryops"),
-			"Number of Remove Entry Operations",
-			nil,
-			nil,
-		),
-
-		Modifyentryops: prometheus.NewDesc(
-			prometheus.BuildFQName(namespace, "", "modifyentryops"),
-			"Number of Modify Entry Operations",
-			nil,
-			nil,
-		),
-
-		Modifyrdnops: prometheus.NewDesc(
-			prometheus.BuildFQName(namespace, "", "modifyrdnops"),
-			"Number of Modify RDN Operations",
-			nil,
-			nil,
-		),
-
-		Searchops: prometheus.NewDesc(
-			prometheus.BuildFQName(namespace, "", "searchops"),
-			"Number of LDAP Search Requests",
-			nil,
-			nil,
-		),
-
-		Onelevelsearchops: prometheus.NewDesc(
-			prometheus.BuildFQName(namespace, "", "onelevelsearchops"),
-			"Number of one-level Search Requests",
-			nil,
-			nil,
-		),
-
-		Wholesubtreesearchops: prometheus.NewDesc(
-			prometheus.BuildFQName(namespace, "", "wholesubtreesearchops"),
-			"Number of subtree-level Search Requests",
-			nil,
-			nil,
-		),
-
-		Referrals: prometheus.NewDesc(
-			prometheus.BuildFQName(namespace, "", "referrals"),
-			"Number of LDAP referrals",
-			nil,
-			nil,
-		),
-
-		Securityerrors: prometheus.NewDesc(
-			prometheus.BuildFQName(namespace, "", "securityerrors"),
-			"Number of Security Errors",
-			nil,
-			nil,
-		),
-
-		Errors: prometheus.NewDesc(
-			prometheus.BuildFQName(namespace, "", "errors"),
-			"Number of Errors",
-			nil,
-			nil,
-		),
-
-		Connections: prometheus.NewDesc(
-			prometheus.BuildFQName(namespace, "", "connections"),
-			"Number of Connections in Open State at the sampling time",
-			nil,
-			nil,
-		),
-
-		Connectionseq: prometheus.NewDesc(
-			prometheus.BuildFQName(namespace, "", "connectionseq"),
-			"Total Number of Connections opened",
-			nil,
-			nil,
-		),
-
-		Connectionsinmaxthreads: prometheus.NewDesc(
-			prometheus.BuildFQName(namespace, "", "connectionsinmaxthreads"),
-			"Number of connections that are currently in a max thread state",
-			nil,
-			nil,
-		),
-
-		Connectionsmaxthreadscount: prometheus.NewDesc(
-			prometheus.BuildFQName(namespace, "", "connectionsmaxthreadscount"),
-			"Number of connectionsmaxthreadscount",
-			nil,
-			nil,
-		),
-
-		Bytesrecv: prometheus.NewDesc(
-			prometheus.BuildFQName(namespace, "", "bytesrecv"),
-			"Total number of bytes received",
-			nil,
-			nil,
-		),
-
-		Bytessent: prometheus.NewDesc(
-			prometheus.BuildFQName(namespace, "", "bytessent"),
-			"Total number of bytes sent",
-			nil,
-			nil,
-		),
-
-		Entriesreturned: prometheus.NewDesc(
-			prometheus.BuildFQName(namespace, "", "entriesreturned"),
-			"Number of Entries Returned",
-			nil,
-			nil,
-		),
-
-		Referralsreturned: prometheus.NewDesc(
-			prometheus.BuildFQName(namespace, "", "referralsreturned"),
-			"Number of Referrals Returned",
-			nil,
-			nil,
-		),
-
-		Cacheentries: prometheus.NewDesc(
-			prometheus.BuildFQName(namespace, "", "cacheentries"),
-			"Number of Cache Entries",
-			nil,
-			nil,
-		),
-
-		Cachehits: prometheus.NewDesc(
-			prometheus.BuildFQName(namespace, "", "cachehits"),
-			"Number of Cache Hits",
-			nil,
-			nil,
-		),
 	}
+	for i, m := range metricDefs {
+		e.descs[i] = prometheus.NewDesc(
+			prometheus.BuildFQName(namespace, "", m.label),
+			m.help, nil, nil,
+		)
+	}
+	return e
 }
 
 func (e *Exporter) Describe(ch chan<- *prometheus.Desc) {
-	ch <- e.Threads
-	ch <- e.Readwaiters
-	ch <- e.Opsinitiated
-	ch <- e.Opscompleted
-	ch <- e.Dtablesize
-	ch <- e.Anonymousbinds
-	ch <- e.Unauthbinds
-	ch <- e.Simpleauthbinds
-	ch <- e.Strongauthbinds
-	ch <- e.Bindsecurityerrors
-	ch <- e.Inops
-	ch <- e.Readops
-	ch <- e.Compareops
-	ch <- e.Addentryops
-	ch <- e.Removeentryops
-	ch <- e.Modifyentryops
-	ch <- e.Modifyrdnops
-	ch <- e.Searchops
-	ch <- e.Onelevelsearchops
-	ch <- e.Wholesubtreesearchops
-	ch <- e.Referrals
-	ch <- e.Securityerrors
-	ch <- e.Errors
-	ch <- e.Connections
-	ch <- e.Connectionseq
-	ch <- e.Connectionsinmaxthreads
-	ch <- e.Connectionsmaxthreadscount
-	ch <- e.Bytesrecv
-	ch <- e.Bytessent
-	ch <- e.Entriesreturned
-	ch <- e.Referralsreturned
-	ch <- e.Cacheentries
-	ch <- e.Cachehits
+	for _, d := range e.descs {
+		ch <- d
+	}
 }
 
 func (e *Exporter) getLDAPConn() (LDAPClient, error) {
@@ -416,40 +218,12 @@ func (e *Exporter) Collect(ch chan<- prometheus.Metric) {
 		return
 	}
 
-	// Current state metrics - use GaugeValue
-	ch <- prometheus.MustNewConstMetric(e.Threads, prometheus.GaugeValue, data.Threads)
-	ch <- prometheus.MustNewConstMetric(e.Readwaiters, prometheus.GaugeValue, data.Readwaiters)
-	ch <- prometheus.MustNewConstMetric(e.Dtablesize, prometheus.GaugeValue, data.Dtablesize)
-	ch <- prometheus.MustNewConstMetric(e.Connections, prometheus.GaugeValue, data.Connections)
-	ch <- prometheus.MustNewConstMetric(e.Connectionsinmaxthreads, prometheus.GaugeValue, data.Connectionsinmaxthreads)
-	ch <- prometheus.MustNewConstMetric(e.Connectionsmaxthreadscount, prometheus.GaugeValue, data.Connectionsmaxthreadscount)
-	ch <- prometheus.MustNewConstMetric(e.Cacheentries, prometheus.GaugeValue, data.Cacheentries)
-
-	// Cumulative counters - use CounterValue (only ever increase)
-	ch <- prometheus.MustNewConstMetric(e.Opsinitiated, prometheus.CounterValue, data.Opsinitiated)
-	ch <- prometheus.MustNewConstMetric(e.Opscompleted, prometheus.CounterValue, data.Opscompleted)
-	ch <- prometheus.MustNewConstMetric(e.Anonymousbinds, prometheus.CounterValue, data.Anonymousbinds)
-	ch <- prometheus.MustNewConstMetric(e.Unauthbinds, prometheus.CounterValue, data.Unauthbinds)
-	ch <- prometheus.MustNewConstMetric(e.Simpleauthbinds, prometheus.CounterValue, data.Simpleauthbinds)
-	ch <- prometheus.MustNewConstMetric(e.Strongauthbinds, prometheus.CounterValue, data.Strongauthbinds)
-	ch <- prometheus.MustNewConstMetric(e.Bindsecurityerrors, prometheus.CounterValue, data.Bindsecurityerrors)
-	ch <- prometheus.MustNewConstMetric(e.Inops, prometheus.CounterValue, data.Inops)
-	ch <- prometheus.MustNewConstMetric(e.Readops, prometheus.CounterValue, data.Readops)
-	ch <- prometheus.MustNewConstMetric(e.Compareops, prometheus.CounterValue, data.Compareops)
-	ch <- prometheus.MustNewConstMetric(e.Addentryops, prometheus.CounterValue, data.Addentryops)
-	ch <- prometheus.MustNewConstMetric(e.Removeentryops, prometheus.CounterValue, data.Removeentryops)
-	ch <- prometheus.MustNewConstMetric(e.Modifyentryops, prometheus.CounterValue, data.Modifyentryops)
-	ch <- prometheus.MustNewConstMetric(e.Modifyrdnops, prometheus.CounterValue, data.Modifyrdnops)
-	ch <- prometheus.MustNewConstMetric(e.Searchops, prometheus.CounterValue, data.Searchops)
-	ch <- prometheus.MustNewConstMetric(e.Onelevelsearchops, prometheus.CounterValue, data.Onelevelsearchops)
-	ch <- prometheus.MustNewConstMetric(e.Wholesubtreesearchops, prometheus.CounterValue, data.Wholesubtreesearchops)
-	ch <- prometheus.MustNewConstMetric(e.Referrals, prometheus.CounterValue, data.Referrals)
-	ch <- prometheus.MustNewConstMetric(e.Securityerrors, prometheus.CounterValue, data.Securityerrors)
-	ch <- prometheus.MustNewConstMetric(e.Errors, prometheus.CounterValue, data.Errors)
-	ch <- prometheus.MustNewConstMetric(e.Connectionseq, prometheus.CounterValue, data.Connectionseq)
-	ch <- prometheus.MustNewConstMetric(e.Bytesrecv, prometheus.CounterValue, data.Bytesrecv)
-	ch <- prometheus.MustNewConstMetric(e.Bytessent, prometheus.CounterValue, data.Bytessent)
-	ch <- prometheus.MustNewConstMetric(e.Entriesreturned, prometheus.CounterValue, data.Entriesreturned)
-	ch <- prometheus.MustNewConstMetric(e.Referralsreturned, prometheus.CounterValue, data.Referralsreturned)
-	ch <- prometheus.MustNewConstMetric(e.Cachehits, prometheus.CounterValue, data.Cachehits)
+	v := reflect.ValueOf(data)
+	for i, m := range metricDefs {
+		vt := prometheus.GaugeValue
+		if m.kind == counterKind {
+			vt = prometheus.CounterValue
+		}
+		ch <- prometheus.MustNewConstMetric(e.descs[i], vt, v.Field(m.fieldIdx).Float())
+	}
 }

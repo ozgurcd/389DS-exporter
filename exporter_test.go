@@ -37,44 +37,18 @@ func saveGlobals() func() {
 }
 
 func attrsToLDAP(d obj.DSData) []*ldap.EntryAttribute {
-	return []*ldap.EntryAttribute{
-		{Name: "threads", Values: []string{floatStr(d.Threads)}},
-		{Name: "readwaiters", Values: []string{floatStr(d.Readwaiters)}},
-		{Name: "opsinitiated", Values: []string{floatStr(d.Opsinitiated)}},
-		{Name: "opscompleted", Values: []string{floatStr(d.Opscompleted)}},
-		{Name: "dtablesize", Values: []string{floatStr(d.Dtablesize)}},
-		{Name: "anonymousbinds", Values: []string{floatStr(d.Anonymousbinds)}},
-		{Name: "unauthbinds", Values: []string{floatStr(d.Unauthbinds)}},
-		{Name: "simpleauthbinds", Values: []string{floatStr(d.Simpleauthbinds)}},
-		{Name: "strongauthbinds", Values: []string{floatStr(d.Strongauthbinds)}},
-		{Name: "bindsecurityerrors", Values: []string{floatStr(d.Bindsecurityerrors)}},
-		{Name: "inops", Values: []string{floatStr(d.Inops)}},
-		{Name: "readops", Values: []string{floatStr(d.Readops)}},
-		{Name: "compareops", Values: []string{floatStr(d.Compareops)}},
-		{Name: "addentryops", Values: []string{floatStr(d.Addentryops)}},
-		{Name: "removeentryops", Values: []string{floatStr(d.Removeentryops)}},
-		{Name: "modifyentryops", Values: []string{floatStr(d.Modifyentryops)}},
-		{Name: "modifyrdnops", Values: []string{floatStr(d.Modifyrdnops)}},
-		{Name: "searchops", Values: []string{floatStr(d.Searchops)}},
-		{Name: "onelevelsearchops", Values: []string{floatStr(d.Onelevelsearchops)}},
-		{Name: "wholesubtreesearchops", Values: []string{floatStr(d.Wholesubtreesearchops)}},
-		{Name: "referrals", Values: []string{floatStr(d.Referrals)}},
-		{Name: "securityerrors", Values: []string{floatStr(d.Securityerrors)}},
-		{Name: "errors", Values: []string{floatStr(d.Errors)}},
-		{Name: "connections", Values: []string{floatStr(d.Connections)}},
-		{Name: "connectionseq", Values: []string{floatStr(d.Connectionseq)}},
-		{Name: "connectionsinmaxthreads", Values: []string{floatStr(d.Connectionsinmaxthreads)}},
-		{Name: "connectionsmaxthreadscount", Values: []string{floatStr(d.Connectionsmaxthreadscount)}},
-		{Name: "bytesrecv", Values: []string{floatStr(d.Bytesrecv)}},
-		{Name: "bytessent", Values: []string{floatStr(d.Bytessent)}},
-		{Name: "entriesreturned", Values: []string{floatStr(d.Entriesreturned)}},
-		{Name: "referralsreturned", Values: []string{floatStr(d.Referralsreturned)}},
-		{Name: "cacheentries", Values: []string{floatStr(d.Cacheentries)}},
-		{Name: "cachehits", Values: []string{floatStr(d.Cachehits)}},
+	v := reflect.ValueOf(d)
+	attrs := make([]*ldap.EntryAttribute, len(metricDefs))
+	for i, m := range metricDefs {
+		attrs[i] = &ldap.EntryAttribute{
+			Name:   m.ldapName,
+			Values: []string{fmtFloat(v.Field(m.fieldIdx).Float())},
+		}
 	}
+	return attrs
 }
 
-func floatStr(f float64) string {
+func fmtFloat(f float64) string {
 	return strconv.FormatFloat(f, 'f', -1, 64)
 }
 
@@ -215,7 +189,7 @@ func TestSearchLDAP_Timeout(t *testing.T) {
 	mock := &mockLDAP{
 		searchFunc: func(req *ldap.SearchRequest) (*ldap.SearchResult, error) {
 			<-block
-			return nil, nil
+			return nil, errors.New("should not reach here")
 		},
 	}
 	defer close(block)
@@ -259,18 +233,8 @@ func TestCollect_Success(t *testing.T) {
 		searchFunc: func(req *ldap.SearchRequest) (*ldap.SearchResult, error) {
 			return &ldap.SearchResult{
 				Entries: []*ldap.Entry{{
-					DN: "cn=monitor",
-					Attributes: attrsToLDAP(obj.DSData{
-						Threads: 1, Readwaiters: 2, Opsinitiated: 3, Opscompleted: 4,
-						Dtablesize: 5, Anonymousbinds: 6, Unauthbinds: 7, Simpleauthbinds: 8,
-						Strongauthbinds: 9, Bindsecurityerrors: 10, Inops: 11, Readops: 12,
-						Compareops: 13, Addentryops: 14, Removeentryops: 15, Modifyentryops: 16,
-						Modifyrdnops: 17, Searchops: 18, Onelevelsearchops: 19, Wholesubtreesearchops: 20,
-						Referrals: 21, Securityerrors: 22, Errors: 23, Connections: 24,
-						Connectionseq: 25, Connectionsinmaxthreads: 26, Connectionsmaxthreadscount: 27,
-						Bytesrecv: 28, Bytessent: 29, Entriesreturned: 30, Referralsreturned: 31,
-						Cacheentries: 32, Cachehits: 33,
-					}),
+					DN:         "cn=monitor",
+					Attributes: attrsToLDAP(obj.DSData{}),
 				}},
 			}, nil
 		},
@@ -319,15 +283,7 @@ func TestCollect_SearchError(t *testing.T) {
 }
 
 func TestCollectHandlesConnectionError(t *testing.T) {
-	// Save and restore package-level vars
-	origServer := server
-	origPort := port
-	origTimeout := ldapTimeout
-	defer func() {
-		server = origServer
-		port = origPort
-		ldapTimeout = origTimeout
-	}()
+	defer saveGlobals()()
 
 	server = "192.0.2.1" // TEST-NET address, guaranteed unroutable
 	port = 1
