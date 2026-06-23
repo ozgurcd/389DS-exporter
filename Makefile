@@ -1,6 +1,6 @@
 BINARY := 389DS-exporter
 
-.PHONY: all build clean distclean fmt vet lint gosec osv-scanner staticcheck test run verify
+.PHONY: all build clean distclean fmt vet lint gosec osv-scanner staticcheck govulncheck test run verify
 
 all: build
 
@@ -40,4 +40,7 @@ osv-scanner:
 staticcheck:
 	staticcheck ./...
 
-verify: lint gosec osv-scanner staticcheck build test
+govulncheck:
+	govulncheck ./...
+
+verify: lint gosec osv-scanner staticcheck govulncheck build test
